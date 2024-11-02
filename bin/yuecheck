@@ -1,0 +1,137 @@
+#!/usr/bin/env lua
+local unistd = require("posix.unistd")
+local sys_wait = require("posix.sys.wait")
+local yue = require("yue")
+local DEFAULT_OPTIONS, LINE_PATTERN, main, exec_child, wait_child, read_all
+DEFAULT_OPTIONS = {
+	"--codes",
+	"--formatter",
+	"plain",
+	"--no-max-line-length",
+	"-"
+}
+LINE_PATTERN = "(.-)\n"
+main = function()
+	local yue_flags = {
+		implicit_return_root = true,
+		reserve_line_number = true,
+		space_over_tab = true,
+		options = { }
+	}
+	if (os.getenv("YUE_TARGET")) ~= nil then
+		yue_flags.options.target = os.getenv("YUE_TARGET")
+	end
+	if (os.getenv("YUE_PATH")) ~= nil then
+		yue_flags.options.path = os.getenv("YUE_PATH")
+	end
+	local lua_code, err, _g = yue.to_lua((io.stdin:read("*a")), yue_flags)
+	if err ~= nil then
+		local lineno, err_msg = err:match("^(%d+): (.-)\n")
+		assert(lineno ~= nil, "Failed to parse yue error:\n" .. tostring(err))
+		print(tostring(lineno) .. ":E:E000:" .. tostring(err_msg))
+		os.exit(1)
+	end
+	local line_map = { }
+	local lua_lineno = 0
+	for line in lua_code:gmatch(LINE_PATTERN) do
+		lua_lineno = lua_lineno + 1
+		local yue_lineno = line:match("^.- -- (%d+)$")
+		line_map[tostring(lua_lineno)] = yue_lineno
+	end
+	local luacheck_args
+	do
+		local _tab_0 = { }
+		local _obj_0
+		do
+			local _accum_0 = { }
+			local _len_0 = 1
+			local _list_0 = arg
+			for _index_0 = 1, #_list_0 do
+				local a = _list_0[_index_0]
+				_accum_0[_len_0] = a
+				_len_0 = _len_0 + 1
+			end
+			_obj_0 = _accum_0
+		end
+		local _idx_0 = 1
+		for _key_0, _value_0 in pairs(_obj_0) do
+			if _idx_0 == _key_0 then
+				_tab_0[#_tab_0 + 1] = _value_0
+				_idx_0 = _idx_0 + 1
+			else
+				_tab_0[_key_0] = _value_0
+			end
+		end
+		local _idx_1 = 1
+		for _key_0, _value_0 in pairs(DEFAULT_OPTIONS) do
+			if _idx_1 == _key_0 then
+				_tab_0[#_tab_0 + 1] = _value_0
+				_idx_1 = _idx_1 + 1
+			else
+				_tab_0[_key_0] = _value_0
+			end
+		end
+		luacheck_args = _tab_0
+	end
+	local pid, stdin, stdout, stderr = exec_child("luacheck", luacheck_args)
+	unistd.write(stdin, lua_code)
+	unistd.close(stdin)
+	local reason, status = wait_child(pid)
+	assert(reason == "exited", "luacheck did not exit, " .. tostring(reason) .. " from signal " .. tostring(status))
+	local output = read_all(stdout)
+	unistd.close(stdout)
+	unistd.close(stderr)
+	for line in output:gmatch(LINE_PATTERN) do
+		local lineno, code_type, code, msg = line:match("^stdin:(%d+):%d+: %(([WE])(%d+)%) (.+)")
+		lineno = line_map[lineno]
+		print(tostring(lineno) .. ":" .. tostring(code_type) .. ":" .. tostring(code_type) .. tostring(code) .. ":" .. tostring(msg))
+	end
+	return os.exit(status)
+end
+exec_child = function(command, args)
+	local stdin_r, stdin_w = unistd.pipe()
+	assert(stdin_r ~= nil, "failed to create pipe: " .. tostring(stdin_w))
+	local stdout_r, stdout_w = unistd.pipe()
+	assert(stdout_r ~= nil, "failed to create pipe: " .. tostring(stdout_w))
+	local stderr_r, stderr_w = unistd.pipe()
+	assert(stderr_r ~= nil, "failed to create pipe: " .. tostring(stderr_w))
+	local child_pid, err = unistd.fork()
+	assert(child_pid ~= nil, "failed to fork: " .. tostring(err))
+	if child_pid == 0 then
+		unistd.close(stdin_w)
+		unistd.close(stdout_r)
+		unistd.close(stderr_r)
+		unistd.dup2(stdin_r, unistd.STDIN_FILENO)
+		unistd.dup2(stdout_w, unistd.STDOUT_FILENO)
+		unistd.dup2(stderr_w, unistd.STDERR_FILENO)
+		args[0] = command
+		local ok, errno
+		ok, err, errno = unistd.execp(command, args)
+		return assert(ok ~= nil, "Failed to run " .. tostring(command) .. " with errno " .. tostring(errno) .. ", error " .. tostring(err))
+	else
+		unistd.close(stdin_r)
+		unistd.close(stdout_w)
+		unistd.close(stderr_w)
+		return child_pid, stdin_w, stdout_r, stderr_r
+	end
+end
+wait_child = function(pid)
+	local ok, reason, status = sys_wait.wait(pid)
+	assert(ok ~= nil, reason)
+	return reason, status
+end
+read_all = function(fd)
+	local output = { }
+	while true do
+		local read = assert((unistd.read(fd, 4096)), "Failed to read output of fd")
+		if read == "" then
+			break
+		end
+		output[#output + 1] = read
+	end
+	unistd.close(fd)
+	return table.concat(output)
+end
+main()
+return
+

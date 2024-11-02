@@ -1,0 +1,121 @@
+#!/usr/bin/env -S yue -e
+import "posix.unistd"
+import "posix.sys.wait" as sys_wait
+import "yue"
+
+local *
+
+DEFAULT_OPTIONS = {
+  "--codes",
+  "--formatter", "plain",
+  "--no-max-line-length", -- We can't configure Yue to generate shorter lines
+  "-",
+}
+LINE_PATTERN = "(.-)\n"
+
+
+main = ->
+  yue_flags = {
+    implicit_return_root: true
+    reserve_line_number: true
+    space_over_tab: true
+    options: {}
+  }
+  if (os.getenv "YUE_TARGET") != nil
+    yue_flags.options.target = os.getenv "YUE_TARGET"
+  if (os.getenv "YUE_PATH") != nil
+    yue_flags.options.path = os.getenv "YUE_PATH"
+
+  lua_code, err, _ = yue.to_lua (io.stdin\read "*a"), yue_flags
+  if err != nil
+    -- Format:
+    -- 19: syntax error in brace expression
+    -- <error line>
+    -- <line with ^ pointer to error column>
+
+    -- Can just parse the first line, as yue should only print one error and
+    -- then stop parsing anyway
+    lineno, err_msg = err\match "^(%d+): (.-)\n"
+    assert lineno != nil, "Failed to parse yue error:\n#{err}"
+    print "#{lineno}:E:E000:#{err_msg}"
+    os.exit 1
+
+  -- Maps Lua lines back to Yue source lines
+  -- NOTE: Yue's line number annotations aren't always perfect, sometimes they're off by one
+  line_map = {}
+  lua_lineno = 0
+  for line in lua_code\gmatch LINE_PATTERN
+    lua_lineno += 1
+    yue_lineno = line\match "^.- -- (%d+)$"
+    line_map[tostring lua_lineno] = yue_lineno
+
+  -- Run luacheck and read its output
+  luacheck_args = { ...[a for a in *arg[1,]], ...DEFAULT_OPTIONS }
+  pid, stdin, stdout, stderr = exec_child "luacheck", luacheck_args
+  unistd.write stdin, lua_code
+  unistd.close stdin
+  reason, status = wait_child pid
+  assert reason == "exited", "luacheck did not exit, #{reason} from signal #{status}"
+  output = read_all stdout
+  unistd.close stdout
+  unistd.close stderr
+
+  -- Parse luacheck output, map line numbers back to Yue line numbers, and
+  -- print reformatted output
+  for line in output\gmatch LINE_PATTERN
+    lineno, code_type, code, msg = line\match "^stdin:(%d+):%d+: %(([WE])(%d+)%) (.+)"
+    lineno = line_map[lineno]
+    print "#{lineno}:#{code_type}:#{code_type}#{code}:#{msg}"
+
+  os.exit status
+
+
+exec_child = (command, args) ->
+  -- Create our three pipes to communicate with the child
+  stdin_r, stdin_w = unistd.pipe!
+  assert stdin_r != nil, "failed to create pipe: #{stdin_w}"
+  stdout_r, stdout_w = unistd.pipe!
+  assert stdout_r != nil, "failed to create pipe: #{stdout_w}"
+  stderr_r, stderr_w = unistd.pipe!
+  assert stderr_r != nil, "failed to create pipe: #{stderr_w}"
+
+  child_pid, err = unistd.fork!
+  assert child_pid != nil, "failed to fork: #{err}"
+  if child_pid == 0
+    -- Running in the child, wire up inputs and outputs
+    unistd.close stdin_w
+    unistd.close stdout_r
+    unistd.close stderr_r
+    unistd.dup2 stdin_r, unistd.STDIN_FILENO
+    unistd.dup2 stdout_w, unistd.STDOUT_FILENO
+    unistd.dup2 stderr_w, unistd.STDERR_FILENO
+    -- exec the designated command
+    args[0] = command
+    ok, err, errno = unistd.execp command, args
+    assert ok != nil, "Failed to run #{command} with errno #{errno}, error #{err}"
+  else
+    -- Running in the parent, return child PID and handles to the caller
+    unistd.close stdin_r
+    unistd.close stdout_w
+    unistd.close stderr_w
+    return child_pid, stdin_w, stdout_r, stderr_r
+
+
+wait_child = (pid) ->
+  ok, reason, status = sys_wait.wait pid
+  assert ok != nil, reason
+  return reason, status
+
+
+read_all = (fd) ->
+  output = {}
+  while true
+    read = assert (unistd.read fd, 4096), "Failed to read output of fd"
+    break if read == ""
+    output[] = read
+  unistd.close fd
+  return table.concat output
+
+
+main!
+return
