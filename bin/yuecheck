@@ -24,7 +24,7 @@ main = function()
 	if (os.getenv("YUE_PATH")) ~= nil then
 		yue_flags.options.path = os.getenv("YUE_PATH")
 	end
-	local lua_code, err, _g = yue.to_lua((io.stdin:read("*a")), yue_flags)
+	local lua_code, err, _ = yue.to_lua((io.stdin:read("*a")), yue_flags)
 	if err ~= nil then
 		local lineno, err_msg = err:match("^(%d+): (.-)\n")
 		assert(lineno ~= nil, "Failed to parse yue error:\n" .. tostring(err))
@@ -82,7 +82,7 @@ main = function()
 	unistd.close(stdout)
 	unistd.close(stderr)
 	for line in output:gmatch(LINE_PATTERN) do
-		local lineno, code_type, code, msg = line:match("^stdin:(%d+):%d+: %(([WE])(%d+)%) (.+)")
+		local lineno, code_type, code, msg = line:match("^[^:]+:(%d+):%d+: %(([WE])(%d+)%) (.+)")
 		lineno = line_map[lineno]
 		print(tostring(lineno) .. ":" .. tostring(code_type) .. ":" .. tostring(code_type) .. tostring(code) .. ":" .. tostring(msg))
 	end

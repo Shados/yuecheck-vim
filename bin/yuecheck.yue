@@ -63,7 +63,7 @@ main = ->
   -- Parse luacheck output, map line numbers back to Yue line numbers, and
   -- print reformatted output
   for line in output\gmatch LINE_PATTERN
-    lineno, code_type, code, msg = line\match "^stdin:(%d+):%d+: %(([WE])(%d+)%) (.+)"
+    lineno, code_type, code, msg = line\match "^[^:]+:(%d+):%d+: %(([WE])(%d+)%) (.+)"
     lineno = line_map[lineno]
     print "#{lineno}:#{code_type}:#{code_type}#{code}:#{msg}"
 

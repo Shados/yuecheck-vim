@@ -24,7 +24,7 @@ endfunction
 
 function! ale_linters#yue#yuecheck#GetCommand(buffer) abort
   let l:options = ale#Var(a:buffer, 'yue_yuecheck_options')
-  return '%e' . ale#Pad(l:options)
+  return '%e' . ale#Pad(l:options) . ' --filename %s'
 endfunction
 
 call ale#linter#Define('yue', {
