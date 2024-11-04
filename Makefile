@@ -20,13 +20,14 @@ bin/yuecheck: bin/yuecheck.yue
 	chmod +x $@
 
 local:
-	$(LUAROCKS) make --force --local yuecheck-vim-scm-1.rockspec
+	$(LUAROCKS) $(MAKE) --force --local yuecheck-vim-scm-1.rockspec RT_DIR=$(RT_DIR)
 
 global:
-	$(ESCALATE) $(LUAROCKS) make yuecheck-vim-scm-1.rockspec
+	$(ESCALATE) $(LUAROCKS) $(MAKE) yuecheck-vim-scm-1.rockspec
 
 watch:
-	inotifywait -r bin/*.yue -m --event close_write 2>/dev/null | while read ev; do make; done
+	$(MAKE)
+	inotifywait -r bin/*.yue -m --event close_write 2>/dev/null | while read ev; do $(MAKE); done
 
 install: bin/yuecheck
 	@test -d $(BINDIR) || mkdir -pm 755 $(BINDIR)

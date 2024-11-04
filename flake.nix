@@ -24,20 +24,18 @@
   in {
     devShells.default = pkgs.mkShell {
       nativeBuildInputs = with pkgs; [
-        gnumake zip
-        jq
+        gnumake
         inotifyTools
-        niv
-        libxcrypt # luaposix dep; useful to have for e.g. `luarocks make --local` testing
       ] ++ (with pkgs.lua52Packages; [
         lua luarepl luarocks
 
-        yuescript inspect luacheck luaposix
+        yuescript inspect luacheck lunix
 
         busted
       ]);
       shellHook = ''
-        export LUA_PATH="${toString ./.}/lua/?.lua;''${LUA_PATH}"
+        # lunix dep; useful to have for e.g. `luarocks make --local` testing
+        export RT_DIR=${pkgs.glibc}
       '';
     };
   });

@@ -1,6 +1,5 @@
 #!/usr/bin/env -S yue -e
-import "posix.unistd"
-import "posix.sys.wait" as sys_wait
+import "unix"
 import "yue"
 
 local *
@@ -52,18 +51,18 @@ main = ->
   -- Run luacheck and read its output
   luacheck_args = { ...[a for a in *arg[1,]], ...DEFAULT_OPTIONS }
   pid, stdin, stdout, stderr = exec_child "luacheck", luacheck_args
-  unistd.write stdin, lua_code
-  unistd.close stdin
+  unix.write stdin, lua_code
+  unix.close stdin
   reason, status = wait_child pid
   assert reason == "exited", "luacheck did not exit, #{reason} from signal #{status}"
   output = read_all stdout
-  unistd.close stdout
-  unistd.close stderr
+  unix.close stdout
+  unix.close stderr
 
   -- Parse luacheck output, map line numbers back to Yue line numbers, and
   -- print reformatted output
   for line in output\gmatch LINE_PATTERN
-    lineno, code_type, code, msg = line\match "^[^:]+:(%d+):%d+: %(([WE])(%d+)%) (.+)"
+    lineno, code_type, code, msg = line\match "^[^:]+:(%d+):%d+: %(([WE]?)(%d+)%) (.+)"
     lineno = line_map[lineno]
     print "#{lineno}:#{code_type}:#{code_type}#{code}:#{msg}"
 
@@ -72,37 +71,37 @@ main = ->
 
 exec_child = (command, args) ->
   -- Create our three pipes to communicate with the child
-  stdin_r, stdin_w = unistd.pipe!
+  stdin_r, stdin_w = unix.pipe!
   assert stdin_r != nil, "failed to create pipe: #{stdin_w}"
-  stdout_r, stdout_w = unistd.pipe!
+  stdout_r, stdout_w = unix.pipe!
   assert stdout_r != nil, "failed to create pipe: #{stdout_w}"
-  stderr_r, stderr_w = unistd.pipe!
+  stderr_r, stderr_w = unix.pipe!
   assert stderr_r != nil, "failed to create pipe: #{stderr_w}"
 
-  child_pid, err = unistd.fork!
-  assert child_pid != nil, "failed to fork: #{err}"
+  child_pid, err, errno = unix.fork!
+  assert child_pid != nil, "failed to fork: #{err}, errno #{errno}"
   if child_pid == 0
     -- Running in the child, wire up inputs and outputs
-    unistd.close stdin_w
-    unistd.close stdout_r
-    unistd.close stderr_r
-    unistd.dup2 stdin_r, unistd.STDIN_FILENO
-    unistd.dup2 stdout_w, unistd.STDOUT_FILENO
-    unistd.dup2 stderr_w, unistd.STDERR_FILENO
+    unix.close stdin_w
+    unix.close stdout_r
+    unix.close stderr_r
+    unix.dup2 stdin_r, unix.STDIN_FILENO
+    unix.dup2 stdout_w, unix.STDOUT_FILENO
+    unix.dup2 stderr_w, unix.STDERR_FILENO
     -- exec the designated command
-    args[0] = command
-    ok, err, errno = unistd.execp command, args
+    table.insert args, 1, command
+    ok, err, errno = unix.execvp command, args
     assert ok != nil, "Failed to run #{command} with errno #{errno}, error #{err}"
   else
     -- Running in the parent, return child PID and handles to the caller
-    unistd.close stdin_r
-    unistd.close stdout_w
-    unistd.close stderr_w
+    unix.close stdin_r
+    unix.close stdout_w
+    unix.close stderr_w
     return child_pid, stdin_w, stdout_r, stderr_r
 
 
 wait_child = (pid) ->
-  ok, reason, status = sys_wait.wait pid
+  ok, reason, status = unix.waitpid pid
   assert ok != nil, reason
   return reason, status
 
@@ -110,10 +109,10 @@ wait_child = (pid) ->
 read_all = (fd) ->
   output = {}
   while true
-    read = assert (unistd.read fd, 4096), "Failed to read output of fd"
+    read = assert (unix.read fd, 4096), "Failed to read output of fd"
     break if read == ""
     output[] = read
-  unistd.close fd
+  unix.close fd
   return table.concat output
 
 

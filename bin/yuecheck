@@ -1,6 +1,5 @@
 #!/usr/bin/env lua
-local unistd = require("posix.unistd")
-local sys_wait = require("posix.sys.wait")
+local unix = require("unix")
 local yue = require("yue")
 local DEFAULT_OPTIONS, LINE_PATTERN, main, exec_child, wait_child, read_all
 DEFAULT_OPTIONS = {
@@ -74,62 +73,62 @@ main = function()
 		luacheck_args = _tab_0
 	end
 	local pid, stdin, stdout, stderr = exec_child("luacheck", luacheck_args)
-	unistd.write(stdin, lua_code)
-	unistd.close(stdin)
+	unix.write(stdin, lua_code)
+	unix.close(stdin)
 	local reason, status = wait_child(pid)
 	assert(reason == "exited", "luacheck did not exit, " .. tostring(reason) .. " from signal " .. tostring(status))
 	local output = read_all(stdout)
-	unistd.close(stdout)
-	unistd.close(stderr)
+	unix.close(stdout)
+	unix.close(stderr)
 	for line in output:gmatch(LINE_PATTERN) do
-		local lineno, code_type, code, msg = line:match("^[^:]+:(%d+):%d+: %(([WE])(%d+)%) (.+)")
+		local lineno, code_type, code, msg = line:match("^[^:]+:(%d+):%d+: %(([WE]?)(%d+)%) (.+)")
 		lineno = line_map[lineno]
 		print(tostring(lineno) .. ":" .. tostring(code_type) .. ":" .. tostring(code_type) .. tostring(code) .. ":" .. tostring(msg))
 	end
 	return os.exit(status)
 end
 exec_child = function(command, args)
-	local stdin_r, stdin_w = unistd.pipe()
+	local stdin_r, stdin_w = unix.pipe()
 	assert(stdin_r ~= nil, "failed to create pipe: " .. tostring(stdin_w))
-	local stdout_r, stdout_w = unistd.pipe()
+	local stdout_r, stdout_w = unix.pipe()
 	assert(stdout_r ~= nil, "failed to create pipe: " .. tostring(stdout_w))
-	local stderr_r, stderr_w = unistd.pipe()
+	local stderr_r, stderr_w = unix.pipe()
 	assert(stderr_r ~= nil, "failed to create pipe: " .. tostring(stderr_w))
-	local child_pid, err = unistd.fork()
-	assert(child_pid ~= nil, "failed to fork: " .. tostring(err))
+	local child_pid, err, errno = unix.fork()
+	assert(child_pid ~= nil, "failed to fork: " .. tostring(err) .. ", errno " .. tostring(errno))
 	if child_pid == 0 then
-		unistd.close(stdin_w)
-		unistd.close(stdout_r)
-		unistd.close(stderr_r)
-		unistd.dup2(stdin_r, unistd.STDIN_FILENO)
-		unistd.dup2(stdout_w, unistd.STDOUT_FILENO)
-		unistd.dup2(stderr_w, unistd.STDERR_FILENO)
-		args[0] = command
-		local ok, errno
-		ok, err, errno = unistd.execp(command, args)
+		unix.close(stdin_w)
+		unix.close(stdout_r)
+		unix.close(stderr_r)
+		unix.dup2(stdin_r, unix.STDIN_FILENO)
+		unix.dup2(stdout_w, unix.STDOUT_FILENO)
+		unix.dup2(stderr_w, unix.STDERR_FILENO)
+		table.insert(args, 1, command)
+		local ok
+		ok, err, errno = unix.execvp(command, args)
 		return assert(ok ~= nil, "Failed to run " .. tostring(command) .. " with errno " .. tostring(errno) .. ", error " .. tostring(err))
 	else
-		unistd.close(stdin_r)
-		unistd.close(stdout_w)
-		unistd.close(stderr_w)
+		unix.close(stdin_r)
+		unix.close(stdout_w)
+		unix.close(stderr_w)
 		return child_pid, stdin_w, stdout_r, stderr_r
 	end
 end
 wait_child = function(pid)
-	local ok, reason, status = sys_wait.wait(pid)
+	local ok, reason, status = unix.waitpid(pid)
 	assert(ok ~= nil, reason)
 	return reason, status
 end
 read_all = function(fd)
 	local output = { }
 	while true do
-		local read = assert((unistd.read(fd, 4096)), "Failed to read output of fd")
+		local read = assert((unix.read(fd, 4096)), "Failed to read output of fd")
 		if read == "" then
 			break
 		end
 		output[#output + 1] = read
 	end
-	unistd.close(fd)
+	unix.close(fd)
 	return table.concat(output)
 end
 main()
