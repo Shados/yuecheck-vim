@@ -13,6 +13,7 @@ dependencies = {
   "lua >= 5.1",
   "luacheck >= 1.2.0",
   "lunix >= 20220331",
+  "yuescript >= 0.26.0",
 }
 build_dependencies = {
   "yuescript >= 0.26.0",
